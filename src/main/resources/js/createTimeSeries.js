@@ -1,9 +1,9 @@
 document.addEventListener("DOMContentLoaded", ()=>{
     const createButton = document.getElementById("createButton");
-    createButton.addEventListener("click", createEvent);
+    createButton.addEventListener("click", createTimeSeries);
 });
 
-function createEvent(){
+function createTimeSeries(){
     const name = document.getElementById("name");
     const description = document.getElementById("description");
 

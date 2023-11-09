@@ -1,62 +1,112 @@
 package WebTech.TP.TimeSeriesManager.api.controller;
 
-import WebTech.TP.TimeSeriesManager.dao.TimeSeriesRepository;
-import WebTech.TP.TimeSeriesManager.model.TimeSeries;
+import WebTech.TP.TimeSeriesManager.dao.TimeSeries;
 
+import WebTech.TP.TimeSeriesManager.dao.UserAccessType;
+import WebTech.TP.TimeSeriesManager.dto.TimeSeriesDTO;
+import WebTech.TP.TimeSeriesManager.service.TimeSeriesService;
 import WebTech.TP.TimeSeriesManager.util.StringUtilities;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/timeseries")
+@RequestMapping("/app/api/timeseries")
 public class TimeSeriesAPIController {
+
+    private final TimeSeriesService service;
+
     @Autowired
-    private TimeSeriesRepository repository;
+    public TimeSeriesAPIController(TimeSeriesService service) {
+        this.service = service;
+    }
 
     @RequestMapping(method = RequestMethod.GET)
-    public List<TimeSeries> getAllTimeSeries() {
-        return repository.findAll();
+    public ResponseEntity<Object> getAllTimeSeries() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        List<TimeSeries> list = service.findAll();
+        List<TimeSeriesDTO> listDTO = new ArrayList<>();
+        for(TimeSeries timeSeries : list) {
+            if(timeSeries.getUserAccessType(authentication.getName()) != UserAccessType.NOT_AUTHORIZED) {
+                listDTO.add(timeSeries.toDTO());
+            }
+        }
+        return ResponseEntity.status(HttpStatus.OK).body(listDTO);
     }
 
     @RequestMapping(method = RequestMethod.GET, value = "/{id}")
     public ResponseEntity<Object> getTimeSeries(@PathVariable String id) {
-        if(!repository.existsById(id)) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(String.format("Time series %s does not exist", id));
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Optional<TimeSeries> timeSeries = service.findById(id);
+        if(timeSeries.isPresent()) {
+            if(timeSeries.get().getUserAccessType(authentication.getName()) == UserAccessType.NOT_AUTHORIZED) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(String.format("You are not authorized to view time series %s", id));
+            }
+            return ResponseEntity.status(HttpStatus.OK).body(timeSeries.get().toDTO());
         }
-        return ResponseEntity.status(HttpStatus.OK).body(repository.findById(id));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(String.format("Time series %s does not exist", id));
     }
 
     @RequestMapping(method = RequestMethod.POST)
-    public ResponseEntity<String> postTimeSeries(@RequestBody TimeSeries timeseries) {
-        repository.save(timeseries);
-        return ResponseEntity.status(HttpStatus.CREATED).body(String.format("Time series %s was created", timeseries.getId()));
+    public ResponseEntity<Object> postTimeSeries(@RequestBody TimeSeriesDTO timeseries) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if(!StringUtilities.isBlankOrNull(timeseries.getId())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("The ID is automatically generated");
+        }
+
+        timeseries.setCreator(authentication.getName());
+
+        TimeSeries savedTimeSeries = timeseries.toEntity();
+        service.save(savedTimeSeries);
+        return ResponseEntity.status(HttpStatus.CREATED).body(savedTimeSeries.toDTO());
     }
 
     @RequestMapping(method = RequestMethod.PUT, value = "/{id}")
-    public ResponseEntity<String> putTimeSeries(@PathVariable String id, @RequestBody TimeSeries timeseries) {
+    public ResponseEntity<Object> putTimeSeries(@PathVariable String id, @RequestBody TimeSeriesDTO timeseries) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Optional<TimeSeries> oldTimeSeries = service.findById(id);
+        if(oldTimeSeries.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(String.format("Time series %s does not exist", id));
+        }
+
+        if(oldTimeSeries.get().getUserAccessType(authentication.getName()) != UserAccessType.FULL) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(String.format("You are not authorized to edit time series %s", id));
+        }
+
         if(!StringUtilities.isBlankOrNull(timeseries.getId())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Updating the ID is not allowed");
         }
         timeseries.setId(id);
 
-        if(!repository.existsById(id)) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(String.format("Time series %s does not exist", id));
+        if(!StringUtilities.isBlankOrNull(timeseries.getCreator())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Updating the creator is not allowed");
         }
+        timeseries.setCreator(oldTimeSeries.get().getCreator());
 
-        repository.save(timeseries);
-        return ResponseEntity.status(HttpStatus.OK).body(String.format("Time series %s was updated successfully", id));
+        TimeSeries savedTimeSeries = timeseries.toEntity();
+        service.save(savedTimeSeries);
+        return ResponseEntity.status(HttpStatus.OK).body(savedTimeSeries.toDTO());
     }
 
     @RequestMapping(method = RequestMethod.DELETE, value = "/{id}")
-    public ResponseEntity<String> deleteTimeSeries(@PathVariable String id) {
-        if(!repository.existsById(id)) {
+    public ResponseEntity<Object> deleteTimeSeries(@PathVariable String id) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Optional<TimeSeries> timeSeries = service.findById(id);
+        if(timeSeries.isEmpty()) {
             return ResponseEntity.status(HttpStatus.OK).body(String.format("Time series %s does not exist or was already deleted", id));
         }
-        repository.deleteById(id);
+
+        if(timeSeries.get().getUserAccessType(authentication.getName()) != UserAccessType.FULL) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(String.format("You are not authorized to delete time series %s", id));
+        }
+        service.deleteById(id);
         return ResponseEntity.status(HttpStatus.OK).body(String.format("Time series %s was deleted", id));
     }
 }

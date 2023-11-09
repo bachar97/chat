@@ -6,12 +6,7 @@ import org.springframework.web.servlet.ModelAndView;
 
 @Controller
 public class TimeSeriesController {
-    @GetMapping("/timeseries")
-    public String getTimeseriesPage() {
-        return "createTimeSeries";
-    }
-
-    @GetMapping("timeseries/{id}")
+    @GetMapping("/app/timeseries/{id}")
     public ModelAndView getTimeSeries(@PathVariable String id) {
         ModelAndView mav = new ModelAndView("timeseriesview");
         mav.addObject("name", id);
